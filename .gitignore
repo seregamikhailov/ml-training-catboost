@@ -4,7 +4,12 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-data/
+# производные данные пайплайна (генерируются локально)
+data/processed/
+# manifest содержит абсолютные локальные пути
+data/raw/manifest.yaml
+# > 100 MB — превышает лимит GitHub (нужен Git LFS или Releases)
+data/raw/metadata/item_embeddings.npz
 models/
 *.cbm
 
