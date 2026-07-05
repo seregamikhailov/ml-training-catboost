@@ -11,18 +11,6 @@ cleaning:
   min_user_interactions: 5     # минимальная активность пользователя
   min_item_interactions: 5     # минимальная активность видео
 
-label:                         # градуированная релевантность
-  weights:
-    like: 2.0
-    share: 3.0
-    bookmark: 3.0
-    click_on_author: 1.0
-    open_comments: 1.0
-  watch_ratio_threshold: 0.8   # досмотр видео
-  watch_weight: 1.0
-  dislike_zero: true           # дизлайк обнуляет релевантность
-  clip_max: 5.0
-
 features:
   use_embeddings: true
   emb_chunk_size: 500000       # размер батча PyArrow
@@ -70,26 +58,7 @@ eval:
   binary_threshold: 1.0        # label >= 1 считается позитивом
 \end{lstlisting}
 
-\subsection*{А.3. Построение целевой переменной (src/preprocess.py, фрагмент)}
-
-\begin{lstlisting}[language=Python, caption={Градуированная релевантность как выражение Polars}, label={lst:label-expr}]
-def build_label_expr(cfg: dict) -> pl.Expr:
-    """label = watch_weight * [watch_ratio >= thr] + sum(w_f * feedback_f);
-    дизлайк (опционально) обнуляет релевантность; сверху клип."""
-    lbl = cfg["label"]
-    expr = (
-        (pl.col(WATCH_RATIO) >= lbl["watch_ratio_threshold"]).cast(pl.Float32)
-        * lbl["watch_weight"]
-    )
-    for feedback, weight in lbl["weights"].items():
-        expr = expr + pl.col(feedback).cast(pl.Float32) * weight
-    expr = expr.clip(0.0, lbl["clip_max"])
-    if lbl.get("dislike_zero", True) and "dislike" in cfg["columns"]["feedback"]:
-        expr = pl.when(pl.col("dislike") > 0).then(0.0).otherwise(expr)
-    return expr.cast(pl.Float32).alias(LABEL)
-\end{lstlisting}
-
-\subsection*{А.4. Векторизованные метрики ранжирования (src/metrics.py, фрагмент)}
+\subsection*{А.3. Векторизованные метрики ранжирования (src/metrics.py, фрагмент)}
 
 \begin{lstlisting}[language=Python, caption={NDCG@k и служебная группировка без циклов по пользователям}, label={lst:metrics}]
 def _prepare(y_true, y_score, group_ids):
@@ -126,7 +95,7 @@ def ndcg_at_k(y_true, y_score, group_ids, k: int, gain: str = "exp") -> float:
     return float(np.mean(dcg[valid] / idcg[valid]))
 \end{lstlisting}
 
-\subsection*{А.5. Эмбеддинг-профили пользователей (src/features.py, фрагмент)}
+\subsection*{А.4. Эмбеддинг-профили пользователей (src/features.py, фрагмент)}
 
 \begin{lstlisting}[language=Python, caption={Аккумуляция профилей по train-позитивам на torch-устройстве}, label={lst:emb-profiles}]
 device = get_torch_device()          # cuda -> mps -> cpu
@@ -152,7 +121,7 @@ profiles[has_profile] /= counts[has_profile].unsqueeze(1)
 profiles = torch.nn.functional.normalize(profiles, dim=1, eps=1e-12)
 \end{lstlisting}
 
-\subsection*{А.6. Автоматический переход GPU~$\rightarrow$~CPU (src/train.py, фрагмент)}
+\subsection*{А.5. Автоматический переход GPU~$\rightarrow$~CPU (src/train.py, фрагмент)}
 
 \begin{lstlisting}[language=Python, caption={Обучение с фолбэком на CPU при отсутствии CUDA}, label={lst:fallback}]
 def fit_model(model_cfg: dict, train_pool, val_pool):
