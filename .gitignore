@@ -1,0 +1,29 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+data/
+models/
+*.cbm
+
+.DS_Store
+.idea/
+.vscode/
+
+# сборка LaTeX
+report/main.aux
+report/main.bbl
+report/main.bcf
+report/main.blg
+report/main.log
+report/main.out
+report/main.run.xml
+report/main.toc
+
+catboost_info/
+
+# локальные ключи clearml
+clearml.conf
+report.zip

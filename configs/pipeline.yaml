@@ -1,0 +1,88 @@
+# Конфиг data-пайплайна: индексация данных, очистка, фичи, сплиты.
+
+clearml:
+  enabled: true
+  project: "ShortVideo-Ranking"
+
+# Источник данных: локальный каталог paths.raw_dir с недельными
+# parquet-шардами взаимодействий, метаданными пользователей/видео
+# и npz-файлом контентных эмбеддингов (см. README).
+data_source:
+  # Ограничение числа недельных шардов для быстрых smoke-прогонов
+  # (берутся первые недели; null = все).
+  max_shards: null
+  # Регэкспы (case-insensitive) для раскладки файлов по категориям.
+  # Файл попадает в первую подошедшую категорию (порядок важен:
+  # embeddings проверяется раньше items).
+  patterns:
+    embeddings: "emb"
+    interactions: "week_"
+    users: "user"
+    items: "item"
+
+paths:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+
+# Имена колонок исходных данных. Если в parquet они отличаются —
+# поправить только здесь.
+columns:
+  user_id: "user_id"
+  item_id: "item_id"
+  timespent: "timespent"
+  duration: "duration"
+  author_id: "author_id"
+  embedding: "embedding"
+  feedback: [like, dislike, share, bookmark, click_on_author, open_comments]
+  context: [place, platform, agent]
+  user_static: [age, gender, geo]
+  # Явная колонка времени; null = используем глобальный порядок строк
+  # (датасет отсортирован по времени).
+  time: null
+
+# Дополнительное прореживание данных (для локальных прогонов).
+sample:
+  # Доля пользователей, отбираемых детерминированным хэшом (null = все).
+  user_fraction: null
+  seed: 42
+
+cleaning:
+  # Отсекаем мусорные значения таймспента.
+  max_timespent_sec: 7200
+  # Клип watch_ratio = timespent / duration.
+  max_watch_ratio: 3.0
+  # Минимальная активность, иначе агрегаты слишком шумные.
+  min_user_interactions: 5
+  min_item_interactions: 5
+
+# Градуированная релевантность для ранжирования.
+label:
+  weights:
+    like: 2.0
+    share: 3.0
+    bookmark: 3.0
+    click_on_author: 1.0
+    open_comments: 1.0
+  watch_ratio_threshold: 0.8   # досмотр видео
+  watch_weight: 1.0
+  dislike_zero: true           # дизлайк обнуляет релевантность
+  clip_max: 5.0
+
+features:
+  # user-item фича: косинус эмбеддинга видео и профиля пользователя
+  # (среднее эмбеддингов позитивов на train-окне). Считается на torch
+  # (cuda / mps / cpu).
+  use_embeddings: true
+  emb_chunk_size: 500000
+  # Усечение контентного эмбеддинга до первых N компонент
+  # (Matryoshka-представление). null = полный.
+  embedding_dim: 32
+  # Порог label, начиная с которого событие считается позитивом
+  # при построении эмбеддинг-профиля пользователя.
+  profile_pos_label: 1.0
+
+split:
+  # Временной сплит по глобальному порядку событий.
+  train_frac: 0.8
+  val_frac: 0.1
+  # остаток -> test

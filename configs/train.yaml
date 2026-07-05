@@ -1,0 +1,50 @@
+# Конфиг обучения CatBoost-ранкера (итоговая модель).
+
+clearml:
+  enabled: true
+  project: "ShortVideo-Ranking"
+  task_name: "catboost_yetirank"
+
+paths:
+  dataset_dir: "data/processed/dataset"
+  models_dir: "models"
+
+data:
+  # Ограничение строк на сплит для быстрых проверочных прогонов
+  # (берутся первые N строк, обрезанная группа отбрасывается).
+  # null = весь датасет (боевой режим).
+  max_rows: null
+
+# Все ключи секции model передаются в CatBoostRanker как есть,
+# кроме allow_cpu_fallback (служебный).
+model:
+  loss_function: "YetiRank"          # listwise-ранжирование
+  eval_metric: "NDCG:top=10;type=Exp"
+  # Метрики, которые CatBoost считает на валидации ПРЯМО ВО ВРЕМЯ обучения
+  # (кривые уезжают в ClearML по итерациям).
+  custom_metric:
+    - "NDCG:top=10;type=Exp"
+    - "MAP:top=10"
+    - "MRR:top=10"
+    - "PrecisionAt:top=10"
+    - "RecallAt:top=10"
+  iterations: 2000
+  learning_rate: 0.05
+  depth: 8
+  l2_leaf_reg: 3.0
+  random_seed: 42
+  # Обучение на GPU. devices — индексы карт ("0" или "0:1" для двух).
+  task_type: "GPU"
+  devices: "0"
+  early_stopping_rounds: 100
+  metric_period: 25                  # как часто считать eval-метрики
+  verbose: 100
+  allow_cpu_fallback: true           # нет CUDA (например, локальный Mac) -> CPU
+
+# Финальная оффлайн-оценка нашими метриками (src/metrics.py)
+# на val и test после обучения.
+eval:
+  ks: [5, 10, 20]
+  # label >= threshold считается позитивом для бинарных метрик
+  # (MAP/MRR/HitRate/Recall/GAUC).
+  binary_threshold: 1.0

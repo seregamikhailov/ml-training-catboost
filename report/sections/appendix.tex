@@ -1,0 +1,175 @@
+\newpage
+\section*{Приложение А. Исходный код и конфигурации ключевых компонентов}
+\addcontentsline{toc}{section}{Приложение А. Исходный код и конфигурации ключевых компонентов}
+
+\subsection*{А.1. Конфигурация data-пайплайна (configs/pipeline.yaml, фрагмент)}
+
+\begin{lstlisting}[language={}, caption={Ключевые секции конфигурации data-этапов}, label={lst:pipeline-yaml}]
+cleaning:
+  max_timespent_sec: 7200      # отсечение мусорного таймспента
+  max_watch_ratio: 3.0         # клип watch_ratio = timespent / duration
+  min_user_interactions: 5     # минимальная активность пользователя
+  min_item_interactions: 5     # минимальная активность видео
+
+label:                         # градуированная релевантность
+  weights:
+    like: 2.0
+    share: 3.0
+    bookmark: 3.0
+    click_on_author: 1.0
+    open_comments: 1.0
+  watch_ratio_threshold: 0.8   # досмотр видео
+  watch_weight: 1.0
+  dislike_zero: true           # дизлайк обнуляет релевантность
+  clip_max: 5.0
+
+features:
+  use_embeddings: true
+  emb_chunk_size: 500000       # размер батча PyArrow
+  embedding_dim: 32            # усечение эмбеддинга (Matryoshka)
+  profile_pos_label: 1.0       # порог позитива для профиля
+
+split:                         # темпоральный сплит
+  train_frac: 0.8
+  val_frac: 0.1                # остаток -> test
+\end{lstlisting}
+
+\subsection*{А.2. Конфигурация итоговой модели (configs/train.yaml)}
+
+\begin{lstlisting}[language={}, caption={Конфигурация обучения CatBoost-ранкера}, label={lst:train-yaml}]
+clearml:
+  enabled: true
+  project: "ShortVideo-Ranking"
+  task_name: "catboost_yetirank"
+
+data:
+  max_rows: null               # ограничение строк для проверочных прогонов
+
+model:
+  loss_function: "YetiRank"    # listwise-ранжирование
+  eval_metric: "NDCG:top=10;type=Exp"
+  custom_metric:               # метрики на валидации по итерациям
+    - "NDCG:top=10;type=Exp"
+    - "MAP:top=10"
+    - "MRR:top=10"
+    - "PrecisionAt:top=10"
+    - "RecallAt:top=10"
+  iterations: 2000
+  learning_rate: 0.05
+  depth: 8
+  l2_leaf_reg: 3.0
+  random_seed: 42
+  task_type: "GPU"
+  devices: "0"
+  early_stopping_rounds: 100
+  metric_period: 25
+  allow_cpu_fallback: true     # нет CUDA -> обучение на CPU
+
+eval:
+  ks: [5, 10, 20]
+  binary_threshold: 1.0        # label >= 1 считается позитивом
+\end{lstlisting}
+
+\subsection*{А.3. Построение целевой переменной (src/preprocess.py, фрагмент)}
+
+\begin{lstlisting}[language=Python, caption={Градуированная релевантность как выражение Polars}, label={lst:label-expr}]
+def build_label_expr(cfg: dict) -> pl.Expr:
+    """label = watch_weight * [watch_ratio >= thr] + sum(w_f * feedback_f);
+    дизлайк (опционально) обнуляет релевантность; сверху клип."""
+    lbl = cfg["label"]
+    expr = (
+        (pl.col(WATCH_RATIO) >= lbl["watch_ratio_threshold"]).cast(pl.Float32)
+        * lbl["watch_weight"]
+    )
+    for feedback, weight in lbl["weights"].items():
+        expr = expr + pl.col(feedback).cast(pl.Float32) * weight
+    expr = expr.clip(0.0, lbl["clip_max"])
+    if lbl.get("dislike_zero", True) and "dislike" in cfg["columns"]["feedback"]:
+        expr = pl.when(pl.col("dislike") > 0).then(0.0).otherwise(expr)
+    return expr.cast(pl.Float32).alias(LABEL)
+\end{lstlisting}
+
+\subsection*{А.4. Векторизованные метрики ранжирования (src/metrics.py, фрагмент)}
+
+\begin{lstlisting}[language=Python, caption={NDCG@k и служебная группировка без циклов по пользователям}, label={lst:metrics}]
+def _prepare(y_true, y_score, group_ids):
+    """Сортирует данные по (группа, -score) и возвращает служебные массивы:
+    релевантности в порядке выдачи, границы групп, позицию в группе."""
+    order = np.lexsort((-y_score, group_ids))
+    g = group_ids[order]
+    rel = y_true[order]
+    starts = np.flatnonzero(np.r_[True, g[1:] != g[:-1]])
+    sizes = np.diff(np.r_[starts, len(g)])
+    pos_in_group = np.arange(len(g)) - np.repeat(starts, sizes)
+    return rel, starts, sizes, pos_in_group
+
+
+def ndcg_at_k(y_true, y_score, group_ids, k: int, gain: str = "exp") -> float:
+    """NDCG@k с экспоненциальным (2^rel - 1) или линейным гейном."""
+    rel, starts, sizes, pos = _prepare(y_true, y_score, group_ids)
+
+    def _gains(r):
+        return np.power(2.0, r) - 1.0 if gain == "exp" else r
+
+    discount = 1.0 / np.log2(pos + 2.0)
+    in_top = pos < k
+    dcg = np.add.reduceat(_gains(rel) * discount * in_top, starts)
+
+    # Идеальный порядок: сортировка по убыванию релевантности внутри группы.
+    ideal_rel, i_starts, _, i_pos = _prepare(y_true, y_true, group_ids)
+    i_discount = 1.0 / np.log2(i_pos + 2.0)
+    idcg = np.add.reduceat(_gains(ideal_rel) * i_discount * (i_pos < k), i_starts)
+
+    valid = idcg > 0
+    if not valid.any():
+        return 0.0
+    return float(np.mean(dcg[valid] / idcg[valid]))
+\end{lstlisting}
+
+\subsection*{А.5. Эмбеддинг-профили пользователей (src/features.py, фрагмент)}
+
+\begin{lstlisting}[language=Python, caption={Аккумуляция профилей по train-позитивам на torch-устройстве}, label={lst:emb-profiles}]
+device = get_torch_device()          # cuda -> mps -> cpu
+emb_t = torch.from_numpy(item_emb).to(device)   # L2-нормированные эмбеддинги
+profiles = torch.zeros((len(user_ids), dim), device=device)
+counts = torch.zeros(len(user_ids), device=device)
+
+# Проход 1: аккумулируем профили по train-позитивам (label >= порога).
+flt = (pads.field(EVENT_ORDER) < train_end) & (pads.field(LABEL) >= pos_thr)
+for batch in dataset.to_batches(
+    columns=[c["user_id"], c["item_id"]], filter=flt, batch_size=chunk
+):
+    u = _map_ids(user_ids, batch[c["user_id"]].to_numpy())
+    i = _map_ids(item_ids, batch[c["item_id"]].to_numpy())
+    mask = (u >= 0) & (i >= 0)
+    u_t = torch.from_numpy(u[mask].astype(np.int64)).to(device)
+    i_t = torch.from_numpy(i[mask].astype(np.int64)).to(device)
+    profiles.index_add_(0, u_t, emb_t[i_t])
+    counts.index_add_(0, u_t, torch.ones(len(u_t), device=device))
+
+has_profile = counts > 0
+profiles[has_profile] /= counts[has_profile].unsqueeze(1)
+profiles = torch.nn.functional.normalize(profiles, dim=1, eps=1e-12)
+\end{lstlisting}
+
+\subsection*{А.6. Автоматический переход GPU~$\rightarrow$~CPU (src/train.py, фрагмент)}
+
+\begin{lstlisting}[language=Python, caption={Обучение с фолбэком на CPU при отсутствии CUDA}, label={lst:fallback}]
+def fit_model(model_cfg: dict, train_pool, val_pool):
+    """Обучает CatBoostRanker; при отсутствии GPU опционально падает на CPU."""
+    params = dict(model_cfg)
+    allow_fallback = params.pop("allow_cpu_fallback", True)
+    try:
+        model = CatBoostRanker(**params)
+        model.fit(train_pool, eval_set=val_pool)
+        return model, params["task_type"]
+    except CatBoostError as e:
+        if params.get("task_type") != "GPU" or not allow_fallback:
+            raise
+        log.warning("GPU-обучение не удалось (%s), переходим на CPU", e)
+        params["task_type"] = "CPU"
+        params.pop("devices", None)
+        model = CatBoostRanker(**params)
+        model.fit(train_pool, eval_set=val_pool)
+        return model, "CPU"
+\end{lstlisting}
