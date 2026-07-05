@@ -45,6 +45,50 @@
 
 \subsection{Сценарии использования (Use Cases)}
 
+UML-диаграмма прецедентов разработанного решения приведена на рисунке~\ref{fig:usecase}.
+Актерами выступают инженер (запускает пайплайн и обучение), исследователь (анализирует результаты) и сервер ClearML как внешняя система трекинга.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+  % --- граница системы
+  \draw (0,0) rectangle (9.6,9.4);
+  \node[font=\small\bfseries, anchor=north] at (4.8,9.2)
+    {ML-пайплайн ранжирования коротких видео};
+
+  % --- прецеденты
+  \node[usecase] (uc2) at (4.8,7.6) {UC-2. Проверочный прогон\\на подвыборке};
+  \node[usecase] (uc1) at (4.8,5.5) {UC-1. Полный прогон\\пайплайна};
+  \node[usecase] (uc3) at (4.8,3.4) {UC-3. Обучение итоговой\\модели на GPU};
+  \node[usecase] (uc4) at (4.8,1.3) {UC-4. Анализ\\эксперимента};
+
+  % --- актеры
+  \pic at (-2.2,7.2) {stickman};
+  \node[actorname] at (-2.2,5.3) {Инженер};
+  \pic at (-2.2,2.4) {stickman};
+  \node[actorname] at (-2.2,0.5) {Исследователь};
+  \pic at (12.0,5.2) {stickman};
+  \node[actorname] at (12.0,3.3) {Сервер\\ClearML};
+
+  % --- ассоциации актеров с прецедентами
+  \draw[assoc] (-1.7,6.5) -- (uc2.west);
+  \draw[assoc] (-1.7,6.5) -- (uc1.west);
+  \draw[assoc] (-1.7,6.5) -- (uc3.west);
+  \draw[assoc] (-1.7,1.7) -- (uc4.west);
+  \draw[assoc] (11.5,4.5) -- (uc1.east);
+  \draw[assoc] (11.5,4.5) -- (uc3.east);
+  \draw[assoc] (11.5,4.5) -- (uc4.east);
+
+  % --- отношения между прецедентами
+  % проверочный прогон — вариация полного (extend),
+  % полный прогон включает обучение модели (include)
+  \draw[ucdep] (uc2.south) -- node[right, font=\scriptsize] {$\ll$extend$\gg$} (uc1.north);
+  \draw[ucdep] (uc1.south) -- node[right, font=\scriptsize] {$\ll$include$\gg$} (uc3.north);
+\end{tikzpicture}
+\caption{UML-диаграмма прецедентов разработанного решения}
+\label{fig:usecase}
+\end{figure}
+
 \textbf{UC-1. Полный прогон пайплайна.}
 Инженер запускает команду \texttt{python -m src.pipeline}.
 Система последовательно выполняет пять этапов: индексацию данных, очистку, построение признаков, сборку датасетов и обучение модели.

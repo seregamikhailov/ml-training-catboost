@@ -27,6 +27,24 @@
 \usepackage{csquotes}
 \usepackage{float}
 
+% UML-диаграмма прецедентов
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric}
+\tikzset{
+  usecase/.style={draw, ellipse, align=center, font=\small,
+                  inner sep=1pt, minimum width=44mm, minimum height=12mm},
+  assoc/.style={semithick},
+  ucdep/.style={-{Stealth[length=2.5mm]}, dashed, semithick},
+  actorname/.style={font=\small, align=center},
+  stickman/.pic={
+    \draw[semithick] (0,0) circle [radius=2.4mm];
+    \draw[semithick] (0,-2.4mm) -- (0,-9mm);
+    \draw[semithick] (-3.6mm,-4.6mm) -- (3.6mm,-4.6mm);
+    \draw[semithick] (0,-9mm) -- (-3.2mm,-14.5mm);
+    \draw[semithick] (0,-9mm) -- (3.2mm,-14.5mm);
+  }
+}
+
 \graphicspath{{figures/}}
 
 % Библиография через biblatex + biber
