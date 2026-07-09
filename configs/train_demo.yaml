@@ -1,0 +1,37 @@
+# Демо-конфиг обучения: 1 млн строк на выборку, 10 итераций (~1 минута).
+# Боевой конфиг — configs/train.yaml.
+
+clearml:
+  enabled: true
+  project: "ShortVideo-Ranking"
+  task_name: "catboost_yetirank_demo"
+
+paths:
+  dataset_dir: "data/processed/dataset"
+  models_dir: "models"
+
+data:
+  max_rows: 1000000
+
+model:
+  loss_function: "YetiRank"
+  eval_metric: "NDCG:top=10;type=Exp"
+  custom_metric:
+    - "NDCG:top=10;type=Exp"
+    - "MAP:top=10"
+    - "MRR:top=10"
+    - "PrecisionAt:top=10"
+    - "RecallAt:top=10"
+  iterations: 10
+  learning_rate: 0.05
+  depth: 6
+  random_seed: 42
+  task_type: "GPU"
+  devices: "0"
+  metric_period: 1
+  verbose: 1
+  allow_cpu_fallback: true
+
+eval:
+  ks: [5, 10, 20]
+  binary_threshold: 1.0
