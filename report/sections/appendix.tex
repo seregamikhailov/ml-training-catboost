@@ -7,17 +7,17 @@
 \begin{lstlisting}[language={}, caption={Ключевые секции конфигурации data-этапов}, label={lst:pipeline-yaml}]
 cleaning:
   max_timespent_sec: 7200      # отсечение мусорного таймспента
-  max_watch_ratio: 3.0         # клип watch_ratio = timespent / duration
+  max_watch_ratio: 3.0         # ограничение watch_ratio = timespent / duration
   min_user_interactions: 5     # минимальная активность пользователя
   min_item_interactions: 5     # минимальная активность видео
 
 features:
   use_embeddings: true
-  emb_chunk_size: 500000       # размер батча PyArrow
+  emb_chunk_size: 500000       # размер блока чтения PyArrow
   embedding_dim: 32            # усечение эмбеддинга (Matryoshka)
   profile_pos_label: 1.0       # порог позитива для профиля
 
-split:                         # темпоральный сплит
+split:                         # временное разбиение
   train_frac: 0.8
   val_frac: 0.1                # остаток -> test
 \end{lstlisting}
@@ -123,7 +123,7 @@ profiles = torch.nn.functional.normalize(profiles, dim=1, eps=1e-12)
 
 \subsection*{А.5. Автоматический переход GPU~$\rightarrow$~CPU (src/train.py, фрагмент)}
 
-\begin{lstlisting}[language=Python, caption={Обучение с фолбэком на CPU при отсутствии CUDA}, label={lst:fallback}]
+\begin{lstlisting}[language=Python, caption={Обучение с автоматическим переходом на CPU при отсутствии CUDA}, label={lst:fallback}]
 def fit_model(model_cfg: dict, train_pool, val_pool):
     """Обучает CatBoostRanker; при отсутствии GPU опционально падает на CPU."""
     params = dict(model_cfg)
