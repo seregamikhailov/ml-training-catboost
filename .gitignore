@@ -32,3 +32,4 @@ catboost_info/
 # локальные ключи clearml
 clearml.conf
 report.zip
+texput.log
